@@ -73,8 +73,10 @@ const unsigned char PPG_EduKit_Logo [] PROGMEM = {
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-static uint8_t gNumberOfActiveChannels = 0U;
-static uint8_t gAdc_channels[4] = {0U};
+void ADC_Handler()
+{
+    PPG_EduKit::ADC_HandlerISR();
+}
 
 
 void PPG_EduKit::begin(PPG_EK_Peripherals *peripheralsList)
@@ -84,7 +86,6 @@ void PPG_EduKit::begin(PPG_EK_Peripherals *peripheralsList)
     Serial.begin(115200);
 
     Wire1.begin();
-
 
     pinMode(TLC5925_LE, OUTPUT);
     pinMode(TLC5925_OE, OUTPUT);
@@ -150,8 +151,8 @@ void PPG_EduKit::begin(PPG_EK_Peripherals *peripheralsList)
         activeChannels |= 1 << ADC_AMP;
     }
 
-    if(activeChannels != 0x00)
-        ADC_Init(activeChannels);
+   // if(activeChannels != 0x00)
+     //   ADC_Init(activeChannels);
 }
 
 
@@ -308,35 +309,37 @@ void PPG_EduKit::AD5273_setLedCurrent(uint16_t val)
     }
 }
 
+
 void PPG_EduKit::ADC_Init(uint8_t channels)
 {
     uint8_t count = 0;
     
     if(channels & (1 << ADC_TIA))
     {
+        adcChannels[count] = 0x00;
         count++;
-        gAdc_Channels[ADC_TIA] = 0x00;
+        
     }
 
     if(channels & (1 << ADC_HPF))
     {
+        adcChannels[count] = 0x01;
         count++;
-        gAdc_Channels[ADC_HPF] = 0x01;
     }
 
     if(channels & (1 << ADC_LPF))
     {
+        adcChannels[count] = 0x02;
         count++;
-        gAdc_Channels[ADC_LPF] = 0x02;
     }
 
     if(channels & (1 << ADC_AMP))
     {
+        adcChannels[count] = 0x03;
         count++;
-        gAdc_Channels[ADC_AMP] = 0x03;
     }
 
-    gNumberOfActiveChannels = count;
+    numberOfActiveChannels = count;
     PMC->PMC_PCER1 |= PMC_PCER1_PID37;      // ADC power on
     ADC->ADC_CR = ADC_CR_SWRST;             // Reset ADC
     ADC->ADC_MR |= ADC_MR_TRGEN_EN |        // Hardware trigger select
@@ -347,11 +350,11 @@ void PPG_EduKit::ADC_Init(uint8_t channels)
 
     ADC->ADC_IDR = ~(0ul);
     ADC->ADC_CHDR = ~(0ul);
-    for (int i = 0; i < gNumberOfActiveChannels; i++)
+    for (int i = 0; i < numberOfActiveChannels; i++)
     {
-      ADC->ADC_CHER |= ADC_CHER_CH0 << gAdc_Channels[i];
+      ADC->ADC_CHER |= ADC_CHER_CH0 << adcChannels[i];
     }
-    ADC->ADC_IER |= ADC_IER_EOC0 << gAdc_Channels[gNumberOfActiveChannels - 1];
+    ADC->ADC_IER |= ADC_IER_EOC0 << adcChannels[numberOfActiveChannels - 1];
     ADC->ADC_PTCR |= ADC_PTCR_RXTDIS | ADC_PTCR_TXTDIS; // Disable PDC DMA
     NVIC_EnableIRQ(ADC_IRQn); 
 
@@ -373,16 +376,29 @@ void PPG_EduKit::ADC_Init(uint8_t channels)
 }
 
 
-void ADC_Handler()
+void PPG_EduKit::ADC_HandlerISR()
 {
-    /*
-  for (uint8_t i = 0; i < gNumberOfActiveChannels; i++)
-  {
-    adc_meas_buffer[crrt_adc_meas_buffer_idx][i] = static_cast<volatile uint16_t>(*(ADC->ADC_CDR + gAdc_Channels[i]) & 0x0FFFF);
-  }
+    for (uint8_t i = 0; i < numberOfActiveChannels; i++)
+    {
+        switch(adcChannels[i])
+        {
+            case ADC_TIA:
+                   // buff_tia[sample]   =      static_cast<volatile uint16_t>(*(ADC->ADC_CDR + gAdc_Channels[i]) & 0x0FFFF);
+                break;
+            case ADC_HPF:
+                   // buff_hpf[sample]   =      static_cast<volatile uint16_t>(*(ADC->ADC_CDR + gAdc_Channels[i]) & 0x0FFFF);
+                break;
+            case ADC_LPF:
+                   // buff_lpf[sample]   =      static_cast<volatile uint16_t>(*(ADC->ADC_CDR + gAdc_Channels[i]) & 0x0FFFF);
+                break;
+            case ADC_AMP:
+                   PPG_EduKit::PPG_EduKit_AMP_Buffer[PPG_EduKIT_BufferHead] = static_cast<volatile uint16_t>(*(ADC->ADC_CDR + adcChannels[i]) & 0x0FFFF);
+                break;
+            default:
+                break;            
+        }
 
-  crrt_adc_meas_buffer_idx = (crrt_adc_meas_buffer_idx + 1) % adc_buffer_nbr_consec_meas;
-
-  adc_flag_conversion = true;
-  */
+    }
 }
+
+

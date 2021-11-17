@@ -39,5 +39,6 @@ void loop() {
                      neoPixel.show();
 
                      delay(4000);
+                    PPG_Shield.PPG_EduKIT_BufferHead++;
 
 }

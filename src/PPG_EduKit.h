@@ -12,7 +12,6 @@
 #define     DISABLE_PERIPHERAL        (0x00)
 
 #define ADC_SAMPLE_RATE           (128UL)
-
 #define I2C_SPEED_STANDARD        100000
 #define I2C_SPEED_FAST            400000
 
@@ -64,40 +63,13 @@ typedef struct{
 
 class PPG_EduKit {
 
-    public:
-        PPG_EduKit(void) : display(64, 128, &Wire1), pixels(1, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800) 
-        {
-            _display = (std::unique_ptr<Adafruit_SH110X>) &display;
-            _pixels = (std::unique_ptr<Adafruit_NeoPixel>) &pixels;
-            _tempSensor = (std::unique_ptr<MAX30205>) &tempSensor;
-            _ppgSensor = (std::unique_ptr<MAX30105>) &ppgSensor;
-
-        }
-
-        void begin(PPG_EK_Peripherals *peripheralsList);
-        void enableLed(PPG_EK_Led ledType, uint16_t ledCurrent, boolean setCurrent);
-        void sendSerialFrame();
-
-        Adafruit_SH110X& getHandler_OLED() { return *(this->_display); }
-        Adafruit_NeoPixel& getHandler_NeoPixel() { return *(this->_pixels); }
-#ifndef __SAM3X8E__
-        MAX30205& getHandler_TempSensor() { return *(this->_tempSensor); }
-#endif
-        MAX30105& getHandler_PpgSensor() { return *(this->_ppgSensor); }
-
-
-        uint16_t   PPG_EduKit_TIA_Buffer[MAX_BUFFER_SIZE];
-        uint16_t   PPG_EduKit_HPF_Buffer[MAX_BUFFER_SIZE];
-        uint16_t   PPG_EduKit_LPF_Buffer[MAX_BUFFER_SIZE];
-        uint16_t   PPG_EduKit_AMP_Buffer[MAX_BUFFER_SIZE];
-
     private:
         TwoWire *_i2cPort;
         Adafruit_SH110X display;
         Adafruit_NeoPixel pixels;        
         MAX30205 tempSensor;
         MAX30105 ppgSensor;
-
+        
         std::unique_ptr<Adafruit_SH110X> _display;
         std::unique_ptr<Adafruit_NeoPixel> _pixels;
         std::unique_ptr<MAX30205> _tempSensor;
@@ -109,6 +81,37 @@ class PPG_EduKit {
         void TLC5925_enableIR(void);
         void AD5273_setLedCurrent(uint16_t val);
         void ADC_Init(uint8_t channels);
+
+    public:
+        PPG_EduKit(void) : display(64, 128, &Wire1), pixels(1, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800) 
+        {
+            _display = (std::unique_ptr<Adafruit_SH110X>) &display;
+            _pixels = (std::unique_ptr<Adafruit_NeoPixel>) &pixels;
+            _tempSensor = (std::unique_ptr<MAX30205>) &tempSensor;
+            _ppgSensor = (std::unique_ptr<MAX30105>) &ppgSensor;
+        }
+
+        void begin(PPG_EK_Peripherals *peripheralsList);
+        void enableLed(PPG_EK_Led ledType, uint16_t ledCurrent, boolean setCurrent);
+        static void ADC_HandlerISR();
+        void sendSerialFrame();
+
+        Adafruit_SH110X& getHandler_OLED() { return *(this->_display); }
+        Adafruit_NeoPixel& getHandler_NeoPixel() { return *(this->_pixels); }
+#ifndef __SAM3X8E__
+        MAX30205& getHandler_TempSensor() { return *(this->_tempSensor); }
+#endif
+        MAX30105& getHandler_PpgSensor() { return *(this->_ppgSensor); }
+
+
+        static volatile uint16_t   PPG_EduKit_TIA_Buffer[MAX_BUFFER_SIZE];
+        static volatile uint16_t   PPG_EduKit_HPF_Buffer[MAX_BUFFER_SIZE];
+        static volatile uint16_t   PPG_EduKit_LPF_Buffer[MAX_BUFFER_SIZE];
+        static volatile uint16_t   PPG_EduKit_AMP_Buffer[MAX_BUFFER_SIZE];
+        static volatile uint16_t   PPG_EduKIT_BufferHead;
+        
+        static  uint8_t numberOfActiveChannels;
+        static  uint8_t adcChannels[4];
 
 };
 
