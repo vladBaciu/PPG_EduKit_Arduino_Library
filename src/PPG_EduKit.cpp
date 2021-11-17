@@ -73,6 +73,16 @@ const unsigned char PPG_EduKit_Logo [] PROGMEM = {
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
+
+ volatile uint16_t  PPG_EduKit::PPG_EduKit_TIA_Buffer[MAX_BUFFER_SIZE];
+ volatile uint16_t  PPG_EduKit::PPG_EduKit_HPF_Buffer[MAX_BUFFER_SIZE];
+ volatile uint16_t  PPG_EduKit::PPG_EduKit_LPF_Buffer[MAX_BUFFER_SIZE];
+ volatile uint16_t  PPG_EduKit::PPG_EduKit_AMP_Buffer[MAX_BUFFER_SIZE];
+ volatile uint16_t  PPG_EduKit::PPG_EduKIT_BufferHead;
+
+uint8_t PPG_EduKit::numberOfActiveChannels;
+uint8_t PPG_EduKit::adcChannels[4];
+
 void ADC_Handler()
 {
     PPG_EduKit::ADC_HandlerISR();
@@ -392,7 +402,7 @@ void PPG_EduKit::ADC_HandlerISR()
                    // buff_lpf[sample]   =      static_cast<volatile uint16_t>(*(ADC->ADC_CDR + gAdc_Channels[i]) & 0x0FFFF);
                 break;
             case ADC_AMP:
-                   PPG_EduKit::PPG_EduKit_AMP_Buffer[PPG_EduKIT_BufferHead] = static_cast<volatile uint16_t>(*(ADC->ADC_CDR + adcChannels[i]) & 0x0FFFF);
+                   PPG_EduKit_AMP_Buffer[PPG_EduKIT_BufferHead] = static_cast<volatile uint16_t>(*(ADC->ADC_CDR + adcChannels[i]) & 0x0FFFF);
                 break;
             default:
                 break;            
@@ -400,5 +410,3 @@ void PPG_EduKit::ADC_HandlerISR()
 
     }
 }
-
-
