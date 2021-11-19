@@ -11,7 +11,9 @@
 #define     ENABLE_PERIPHERAL         (0xAA)
 #define     DISABLE_PERIPHERAL        (0x00)
 
-#define ADC_SAMPLE_RATE           (128UL)
+#define ADC_SAMPLE_RATE           1280000
+#define TIMER_TICK_PERIOD         (VARIANT_MCK/2 /ADC_SAMPLE_RATE)
+
 #define I2C_SPEED_STANDARD        100000
 #define I2C_SPEED_FAST            400000
 
@@ -39,8 +41,9 @@
 #define NEOPIXEL_PIN                 0U
 #define SWITCH_BUTTON                1U
 
-#define MAX_BUFFER_SIZE              (200UL)
+#define MAX_BUFFER_SIZE              (200U)
 
+                                        
 typedef enum{
     RED_LED,
     GREEN_LED,
@@ -74,7 +77,6 @@ class PPG_EduKit {
 
         void begin(PPG_EK_Peripherals *peripheralsList);
         void enableLed(PPG_EK_Led ledType, uint16_t ledCurrent, boolean setCurrent);
-
         static void ADC_HandlerISR();
 
         Adafruit_SH110X& getHandler_OLED() { return *(this->_display); }
@@ -85,14 +87,15 @@ class PPG_EduKit {
         MAX30105& getHandler_PpgSensor() { return *(this->_ppgSensor); }
         
 
-        volatile static  uint16_t   PPG_EduKit_TIA_Buffer[MAX_BUFFER_SIZE];
-        volatile static  uint16_t   PPG_EduKit_HPF_Buffer[MAX_BUFFER_SIZE];
-        volatile static  uint16_t   PPG_EduKit_LPF_Buffer[MAX_BUFFER_SIZE];
-        volatile static  uint16_t   PPG_EduKit_AMP_Buffer[MAX_BUFFER_SIZE];
-        volatile static  uint16_t   PPG_EduKIT_BufferHead;
-
+        volatile static uint16_t  PPG_EduKit_TIA_Buffer[MAX_BUFFER_SIZE];
+        volatile static uint16_t  PPG_EduKit_HPF_Buffer[MAX_BUFFER_SIZE];
+        volatile static uint16_t  PPG_EduKit_LPF_Buffer[MAX_BUFFER_SIZE];
+        volatile static uint16_t  PPG_EduKit_AMP_Buffer[MAX_BUFFER_SIZE];
+        volatile static uint16_t  PPG_EduKIT_BufferHead;
+        volatile static boolean bufferProcessed; 
         static  uint8_t numberOfActiveChannels;
         static  uint8_t adcChannels[4];
+        static  uint8_t activeChannels;
         
     private:
         TwoWire *_i2cPort;
@@ -112,6 +115,6 @@ class PPG_EduKit {
         void TLC5925_enableIR(void);
         void AD5273_setLedCurrent(uint16_t val);
         void ADC_Init(uint8_t channels);
-
+        void TIMER_Init(uint32_t ticks);
 
 };

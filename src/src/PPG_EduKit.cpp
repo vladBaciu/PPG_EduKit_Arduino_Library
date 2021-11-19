@@ -6,6 +6,14 @@
 #define     ADC_LPF     2U
 #define     ADC_AMP     3U
 
+#define     ADC_TIA_PIN     A0
+#define     ADC_HPF_PIN     A1
+#define     ADC_LPF_PIN     A2
+#define     ADC_AMP_PIN     A3
+
+
+#define ADC_MR_TRIG1 (1 << 1)
+
 const unsigned char PPG_EduKit_Logo [] PROGMEM = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -74,25 +82,25 @@ const unsigned char PPG_EduKit_Logo [] PROGMEM = {
 };
 
 
- volatile uint16_t  PPG_EduKit::PPG_EduKit_TIA_Buffer[MAX_BUFFER_SIZE];
- volatile uint16_t  PPG_EduKit::PPG_EduKit_HPF_Buffer[MAX_BUFFER_SIZE];
- volatile uint16_t  PPG_EduKit::PPG_EduKit_LPF_Buffer[MAX_BUFFER_SIZE];
- volatile uint16_t  PPG_EduKit::PPG_EduKit_AMP_Buffer[MAX_BUFFER_SIZE];
- volatile uint16_t  PPG_EduKit::PPG_EduKIT_BufferHead;
+volatile uint16_t  PPG_EduKit::PPG_EduKit_TIA_Buffer[MAX_BUFFER_SIZE] = {0UL};
+volatile uint16_t  PPG_EduKit::PPG_EduKit_HPF_Buffer[MAX_BUFFER_SIZE] = {0UL};
+volatile uint16_t  PPG_EduKit::PPG_EduKit_LPF_Buffer[MAX_BUFFER_SIZE] = {0UL};
+volatile uint16_t  PPG_EduKit::PPG_EduKit_AMP_Buffer[MAX_BUFFER_SIZE] = {0UL};
+volatile uint16_t  PPG_EduKit::PPG_EduKIT_BufferHead = 0UL;
+volatile boolean   PPG_EduKit::bufferProcessed = true; 
 
-uint8_t PPG_EduKit::numberOfActiveChannels;
-uint8_t PPG_EduKit::adcChannels[4];
+uint8_t PPG_EduKit::numberOfActiveChannels = 0U;
+uint8_t PPG_EduKit::adcChannels[4] = {0};
+uint8_t PPG_EduKit::activeChannels = 0U;
 
-void ADC_Handler()
-{
-    PPG_EduKit::ADC_HandlerISR();
-}
 
+//void ADC_Handler(void)
+//{
+//	  digitalWrite(24, !digitalRead(24));
+//}
 
 void PPG_EduKit::begin(PPG_EK_Peripherals *peripheralsList)
 {
-    uint8_t activeChannels = 0x00;
-
     Serial.begin(115200);
 
     Wire1.begin();
@@ -161,8 +169,13 @@ void PPG_EduKit::begin(PPG_EK_Peripherals *peripheralsList)
         activeChannels |= 1 << ADC_AMP;
     }
 
-   // if(activeChannels != 0x00)
-     //   ADC_Init(activeChannels);
+
+    if(activeChannels != 0x00U)
+    {
+       //TIMER_Init(TIMER_TICK_PERIOD);
+       //ADC_Init(activeChannels);
+    } 
+    
 }
 
 
@@ -318,17 +331,46 @@ void PPG_EduKit::AD5273_setLedCurrent(uint16_t val)
         while(1); //halt the program
     }
 }
+/*
+void PPG_EduKit::readChannels()
+{
+    while (ADC_Sampler.available() && (MAX_BUFFER_SIZE != PPG_EduKIT_BufferHead)) 
+    {
+        uint16_t *ch_samples = ADC_Sampler.get();
+        if(activeChannels & (1 << ADC_TIA))
+        {
+            PPG_EduKit_TIA_Buffer[PPG_EduKIT_BufferHead] = ch_samples[ADC_TIA];
+        }
+    
+        if(activeChannels & (1 << ADC_HPF))
+        {
+            PPG_EduKit_HPF_Buffer[PPG_EduKIT_BufferHead] = ch_samples[ADC_HPF];
+        }
+    
+        if(activeChannels & (1 << ADC_LPF))
+        {
+            PPG_EduKit_LPF_Buffer[PPG_EduKIT_BufferHead] = ch_samples[ADC_LPF];
+        }
+    
+        if(activeChannels & (1 << ADC_AMP))
+        {
+            PPG_EduKit_AMP_Buffer[PPG_EduKIT_BufferHead] = ch_samples[ADC_AMP];
+        }
+        PPG_EduKIT_BufferHead++;
+        bufferProcessed = true;
+    }
 
+    PPG_EduKIT_BufferHead = 0;
+}
+*/
 
 void PPG_EduKit::ADC_Init(uint8_t channels)
 {
     uint8_t count = 0;
-    
     if(channels & (1 << ADC_TIA))
     {
         adcChannels[count] = 0x00;
         count++;
-        
     }
 
     if(channels & (1 << ADC_HPF))
@@ -348,65 +390,44 @@ void PPG_EduKit::ADC_Init(uint8_t channels)
         adcChannels[count] = 0x03;
         count++;
     }
-
+   
     numberOfActiveChannels = count;
-    PMC->PMC_PCER1 |= PMC_PCER1_PID37;      // ADC power on
-    ADC->ADC_CR = ADC_CR_SWRST;             // Reset ADC
-    ADC->ADC_MR |= ADC_MR_TRGEN_EN |        // Hardware trigger select
-                   ADC_MR_PRESCAL(200) |    // the pre-scaler: as high as possible for better accuracy, while still fast enough to measure everything
-                                            // see: https://arduino.stackexchange.com/questions/12723/how-to-slow-adc-clock-speed-to-1mhz-on-arduino-due
-                                            // unclear, asked: https://stackoverflow.com/questions/64243073/setting-right-adc-prescaler-on-the-arduino-due-in-timer-and-interrupt-driven-mul
-                   ADC_MR_TRGSEL_ADC_TRIG3; // Trigger by TIOA2 Rising edge
+ 
+    PMC->PMC_PCER1 |= PMC_PCER1_PID37;                    // ADC power on
+    ADC->ADC_CR = ADC_CR_SWRST;                           // Reset ADC
+    ADC->ADC_MR |=  ADC_MR_TRGEN_EN                       // Hardware trigger select
+                    | ADC_MR_TRGSEL_ADC_TRIG3             // Trigger by TIOA2
+                    | ADC_MR_PRESCAL(1);
+    ADC->ADC_ACR = ADC_ACR_IBCTL(0b01);                   // For frequencies > 500 KHz
 
-    ADC->ADC_IDR = ~(0ul);
-    ADC->ADC_CHDR = ~(0ul);
-    for (int i = 0; i < numberOfActiveChannels; i++)
-    {
-      ADC->ADC_CHER |= ADC_CHER_CH0 << adcChannels[i];
-    }
-    ADC->ADC_IER |= ADC_IER_EOC0 << adcChannels[numberOfActiveChannels - 1];
-    ADC->ADC_PTCR |= ADC_PTCR_RXTDIS | ADC_PTCR_TXTDIS; // Disable PDC DMA
-    NVIC_EnableIRQ(ADC_IRQn); 
+    ADC->ADC_CHER = ADC_CHER_CH7;                        // Enable ADC CH7 = A0
+    ADC->ADC_IER = ADC_IER_EOC7;                         // Interrupt on End of conversion
+    NVIC_EnableIRQ(ADC_IRQn);                            // Enable ADC interrupt
+}
 
 
-    PMC->PMC_PCER0 |= PMC_PCER0_PID29;                     // TC2 power ON : Timer Counter 0 channel 2 IS TC2
-    TC0->TC_CHANNEL[2].TC_CMR = TC_CMR_TCCLKS_TIMER_CLOCK2 // clock 2 has frequency MCK/8, clk on rising edge
-                              | TC_CMR_WAVE              // Waveform mode
-                              | TC_CMR_WAVSEL_UP_RC      // UP mode with automatic trigger on RC Compare
-                              | TC_CMR_ACPA_CLEAR        // Clear TIOA2 on RA compare match
-                              | TC_CMR_ACPC_SET;         // Set TIOA2 on RC compare match
+void PPG_EduKit::TIMER_Init(uint32_t ticks) 
+{
 
-    constexpr int ticks_per_sample = F_CPU / 8 / ADC_SAMPLE_RATE; // F_CPU / 8 is the timer clock frequency, see MCK/8 setup
-    constexpr int ticks_duty_cycle = ticks_per_sample / 2;        // duty rate up vs down ticks over timer cycle; use 50%
-    TC0->TC_CHANNEL[2].TC_RC = ticks_per_sample;
-    TC0->TC_CHANNEL[2].TC_RA = ticks_duty_cycle;
+  PMC->PMC_PCER0 |= PMC_PCER0_PID29;                      // TC2 power ON : Timer Counter 0 channel 2 IS TC2
+  TC0->TC_CHANNEL[2].TC_CMR = TC_CMR_TCCLKS_TIMER_CLOCK2  // MCK/8, clk on rising edge
+                              | TC_CMR_WAVE               // Waveform mode
+                              | TC_CMR_WAVSEL_UP_RC        // UP mode with automatic trigger on RC Compare
+                              | TC_CMR_ACPA_CLEAR          // Clear TIOA2 on RA compare match
+                              | TC_CMR_ACPC_SET;           // Set TIOA2 on RC compare match
 
-    TC0->TC_CHANNEL[2].TC_CCR = TC_CCR_SWTRG | TC_CCR_CLKEN; // Software trigger TC2 counter and enable
+
+   TC0->TC_CHANNEL[2].TC_RC = 238;  //<*********************  Frequency = (Mck/8)/TC_RC  Hz = 44.117 Hz
+   TC0->TC_CHANNEL[2].TC_RA = 40;  //<********************   Any Duty cycle in between 1 and 874
+
+   TC0->TC_CHANNEL[2].TC_CCR = TC_CCR_SWTRG | TC_CCR_CLKEN; // Software tr
 
 }
 
 
 void PPG_EduKit::ADC_HandlerISR()
 {
-    for (uint8_t i = 0; i < numberOfActiveChannels; i++)
-    {
-        switch(adcChannels[i])
-        {
-            case ADC_TIA:
-                   // buff_tia[sample]   =      static_cast<volatile uint16_t>(*(ADC->ADC_CDR + gAdc_Channels[i]) & 0x0FFFF);
-                break;
-            case ADC_HPF:
-                   // buff_hpf[sample]   =      static_cast<volatile uint16_t>(*(ADC->ADC_CDR + gAdc_Channels[i]) & 0x0FFFF);
-                break;
-            case ADC_LPF:
-                   // buff_lpf[sample]   =      static_cast<volatile uint16_t>(*(ADC->ADC_CDR + gAdc_Channels[i]) & 0x0FFFF);
-                break;
-            case ADC_AMP:
-                   PPG_EduKit_AMP_Buffer[PPG_EduKIT_BufferHead] = static_cast<volatile uint16_t>(*(ADC->ADC_CDR + adcChannels[i]) & 0x0FFFF);
-                break;
-            default:
-                break;            
-        }
-
-    }
+  
 }
+
+
