@@ -8,11 +8,18 @@
 #include <MAX30105.h>
 
 
-#define     ENABLE_PERIPHERAL         (0xAA)
-#define     DISABLE_PERIPHERAL        (0x00)
+#define   ENABLE_PERIPHERAL         (0xAA)
+#define   DISABLE_PERIPHERAL        (0x00)
 
-#define ADC_SAMPLE_RATE           1280000
-#define TIMER_TICK_PERIOD         (VARIANT_MCK/2 /ADC_SAMPLE_RATE)
+#define   ADC_TIA     ADC_CHER_CH7
+#define   ADC_HPF     ADC_CHER_CH6
+#define   ADC_LPF     ADC_CHER_CH5
+#define   ADC_AMP     ADC_CHER_CH4
+
+#define MAX_NUM_CHANNELS            4
+#define MAX_BUFFER_SIZE             30
+#define DMA_BUFFER_SIZE             (MAX_BUFFER_SIZE * MAX_NUM_CHANNELS)
+#define DMA_NUMBER_OF_BUFFERS       3
 
 #define I2C_SPEED_STANDARD        100000
 #define I2C_SPEED_FAST            400000
@@ -41,13 +48,11 @@
 #define NEOPIXEL_PIN                 0U
 #define SWITCH_BUTTON                1U
 
-#define MAX_BUFFER_SIZE              (200U)
-
-                                        
+                                      
 typedef enum{
-    RED_LED,
-    GREEN_LED,
-    IR_LED
+    RED_CHANNEL,
+    GREEN_CHANNEL,
+    IR_CHANNEL
 } PPG_EK_Led;
 
 typedef struct{
@@ -64,6 +69,39 @@ typedef struct{
 } PPG_EK_Peripherals;
 
 
+/* @brief Enum with frame types */
+typedef enum 
+{ 
+    CHANNEL_DATA = 0x7C, 
+    PARAMS = 0x83, 
+    DEBUG_FRAME = 0xF2
+} frameType_t;
+
+/*==================================================================================================
+ *                                STRUCTURES AND OTHER TYPEDEFS
+ *  ==============================================================================================*/
+
+/* @brief Store params for the debug frame. Not supported yet. */
+typedef struct
+{
+  uint8_t dummy;
+}debugType_t;
+
+
+/* @brief Store params for differend kind of serial frames */
+typedef struct
+{
+  frameType_t frameType;
+  union
+  {
+    uint8_t hr_spo2[3];
+    uint8_t wavelength;
+    debugType_t debugParam;
+  }params;
+  bool tissueDetected;
+}frameParams_t;
+
+
 class PPG_EduKit {
 
     public:
@@ -75,8 +113,11 @@ class PPG_EduKit {
             _ppgSensor = (std::unique_ptr<MAX30105>) &ppgSensor;
         }
 
-        void begin(PPG_EK_Peripherals *peripheralsList);
+        void begin(PPG_EK_Peripherals *peripheralsList, uint32_t samplingRate);
         void enableLed(PPG_EK_Led ledType, uint16_t ledCurrent, boolean setCurrent);
+        uint16_t* readChannel(uint8_t channel, uint32_t *bufferLength);
+        uint8_t* createSerialFrame(void *inputData, uint16_t noOfBytes, frameParams_t *serialFrameStruct);
+        void sendFrame(uint8_t *pFrame);
         static void ADC_HandlerISR();
 
         Adafruit_SH110X& getHandler_OLED() { return *(this->_display); }
@@ -87,12 +128,12 @@ class PPG_EduKit {
         MAX30105& getHandler_PpgSensor() { return *(this->_ppgSensor); }
         
 
-        volatile static uint16_t  PPG_EduKit_TIA_Buffer[MAX_BUFFER_SIZE];
-        volatile static uint16_t  PPG_EduKit_HPF_Buffer[MAX_BUFFER_SIZE];
-        volatile static uint16_t  PPG_EduKit_LPF_Buffer[MAX_BUFFER_SIZE];
-        volatile static uint16_t  PPG_EduKit_AMP_Buffer[MAX_BUFFER_SIZE];
+        volatile static uint16_t  PPG_EduKit_TIA_Buffer[DMA_BUFFER_SIZE];
+        volatile static uint16_t  PPG_EduKit_HPF_Buffer[DMA_BUFFER_SIZE];
+        volatile static uint16_t  PPG_EduKit_LPF_Buffer[DMA_BUFFER_SIZE];
+        volatile static uint16_t  PPG_EduKit_AMP_Buffer[DMA_BUFFER_SIZE];
         volatile static uint16_t  PPG_EduKIT_BufferHead;
-        volatile static boolean bufferProcessed; 
+        volatile static bool bufferProcessed; 
         static  uint8_t numberOfActiveChannels;
         static  uint8_t adcChannels[4];
         static  uint8_t activeChannels;
@@ -104,6 +145,15 @@ class PPG_EduKit {
         MAX30205 tempSensor;
         MAX30105 ppgSensor;
         
+
+        uint32_t sampleingRate;
+        uint8_t serialFrame[DMA_BUFFER_SIZE + 5];
+
+        static volatile uint16_t adcBuffer[DMA_NUMBER_OF_BUFFERS][DMA_BUFFER_SIZE];
+        static volatile uint8_t adcDMAIndex;        
+        static volatile uint8_t adcTransferIndex;   
+        static volatile bool dataReady;
+
         std::unique_ptr<Adafruit_SH110X> _display;
         std::unique_ptr<Adafruit_NeoPixel> _pixels;
         std::unique_ptr<MAX30205> _tempSensor;
@@ -114,7 +164,10 @@ class PPG_EduKit {
         void TLC5925_enableGreen(void);
         void TLC5925_enableIR(void);
         void AD5273_setLedCurrent(uint16_t val);
-        void ADC_Init(uint8_t channels);
-        void TIMER_Init(uint32_t ticks);
+        void ADC_Init(uint8_t channels, uint32_t sampleingRate);
+        bool ADC_Available(void);
+        uint16_t* ADC_GetFilledBuffer(void);
+        void ADC_ReadBufferDone(void);
+
 
 };

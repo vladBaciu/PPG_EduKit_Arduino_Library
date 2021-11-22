@@ -1,18 +1,10 @@
 #include "PPG_EduKit.h"
 #include <Wire.h>
 
-#define     ADC_TIA     0U
-#define     ADC_HPF     1U
-#define     ADC_LPF     2U
-#define     ADC_AMP     3U
 
-#define     ADC_TIA_PIN     A0
-#define     ADC_HPF_PIN     A1
-#define     ADC_LPF_PIN     A2
-#define     ADC_AMP_PIN     A3
-
-
-#define ADC_MR_TRIG1 (1 << 1)
+#define FRAME_START               (0xDA)
+#define FRAME_TERMINATOR_1        (0xEA)
+#define FRAME_TERMINATOR_2        (0xDC)
 
 const unsigned char PPG_EduKit_Logo [] PROGMEM = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -82,12 +74,16 @@ const unsigned char PPG_EduKit_Logo [] PROGMEM = {
 };
 
 
-volatile uint16_t  PPG_EduKit::PPG_EduKit_TIA_Buffer[MAX_BUFFER_SIZE] = {0UL};
-volatile uint16_t  PPG_EduKit::PPG_EduKit_HPF_Buffer[MAX_BUFFER_SIZE] = {0UL};
-volatile uint16_t  PPG_EduKit::PPG_EduKit_LPF_Buffer[MAX_BUFFER_SIZE] = {0UL};
-volatile uint16_t  PPG_EduKit::PPG_EduKit_AMP_Buffer[MAX_BUFFER_SIZE] = {0UL};
+volatile uint16_t  PPG_EduKit::PPG_EduKit_TIA_Buffer[DMA_BUFFER_SIZE] = {0UL};
+volatile uint16_t  PPG_EduKit::PPG_EduKit_HPF_Buffer[DMA_BUFFER_SIZE] = {0UL};
+volatile uint16_t  PPG_EduKit::PPG_EduKit_LPF_Buffer[DMA_BUFFER_SIZE] = {0UL};
+volatile uint16_t  PPG_EduKit::PPG_EduKit_AMP_Buffer[DMA_BUFFER_SIZE] = {0UL};
 volatile uint16_t  PPG_EduKit::PPG_EduKIT_BufferHead = 0UL;
-volatile boolean   PPG_EduKit::bufferProcessed = true; 
+volatile bool      PPG_EduKit::bufferProcessed = true; 
+volatile uint16_t  PPG_EduKit::adcBuffer[DMA_NUMBER_OF_BUFFERS][DMA_BUFFER_SIZE];
+volatile uint8_t   PPG_EduKit::adcDMAIndex = 0U;       
+volatile uint8_t   PPG_EduKit::adcTransferIndex = 0U;  
+volatile bool      PPG_EduKit::dataReady = false;
 
 uint8_t PPG_EduKit::numberOfActiveChannels = 0U;
 uint8_t PPG_EduKit::adcChannels[4] = {0};
@@ -99,7 +95,7 @@ uint8_t PPG_EduKit::activeChannels = 0U;
 //	  digitalWrite(24, !digitalRead(24));
 //}
 
-void PPG_EduKit::begin(PPG_EK_Peripherals *peripheralsList)
+void PPG_EduKit::begin(PPG_EK_Peripherals *peripheralsList, uint32_t samplingRate)
 {
     Serial.begin(115200);
 
@@ -154,26 +150,25 @@ void PPG_EduKit::begin(PPG_EK_Peripherals *peripheralsList)
     
     if(peripheralsList->read_TIA == ENABLE_PERIPHERAL)
     {
-        activeChannels |= 1 << ADC_TIA;
+        activeChannels |= ADC_TIA;
     }
     if(peripheralsList->read_HPF == ENABLE_PERIPHERAL)
     {
-        activeChannels |= 1 << ADC_HPF;
+        activeChannels |= ADC_HPF;
     }
     if(peripheralsList->read_LPF == ENABLE_PERIPHERAL)
     {
-        activeChannels |= 1 << ADC_LPF;
+        activeChannels |= ADC_LPF;
     }
     if(peripheralsList->read_AMP == ENABLE_PERIPHERAL)
     {
-        activeChannels |= 1 << ADC_AMP;
+        activeChannels |= ADC_AMP;
     }
 
 
     if(activeChannels != 0x00U)
     {
-       //TIMER_Init(TIMER_TICK_PERIOD);
-       //ADC_Init(activeChannels);
+       ADC_Init(activeChannels, samplingRate);
     } 
     
 }
@@ -205,13 +200,13 @@ void PPG_EduKit::enableLed(PPG_EK_Led ledType, uint16_t ledCurrent, boolean setC
 
     switch(ledType)
     {
-        case RED_LED:
+        case RED_CHANNEL:
             TLC5925_enableRed();
             break;
-        case GREEN_LED:
+        case GREEN_CHANNEL:
             TLC5925_enableGreen(); 
             break;
-        case IR_LED:
+        case IR_CHANNEL:
             TLC5925_enableIR(); 
             break;
 
@@ -331,103 +326,285 @@ void PPG_EduKit::AD5273_setLedCurrent(uint16_t val)
         while(1); //halt the program
     }
 }
-/*
-void PPG_EduKit::readChannels()
+
+uint16_t* PPG_EduKit::readChannel(uint8_t channel, uint32_t *bufferLength)
 {
-    while (ADC_Sampler.available() && (MAX_BUFFER_SIZE != PPG_EduKIT_BufferHead)) 
+    bool validChannel = false;
+    uint8_t channelIndex = 0U;
+    uint32_t samples = 0UL;
+    uint16_t *pBuffer = NULL;
+
+    for(uint8_t i = 0; i < numberOfActiveChannels; i++)
     {
-        uint16_t *ch_samples = ADC_Sampler.get();
-        if(activeChannels & (1 << ADC_TIA))
+        if(adcChannels[i] == channel) 
         {
-            PPG_EduKit_TIA_Buffer[PPG_EduKIT_BufferHead] = ch_samples[ADC_TIA];
+            validChannel = true;
+            channelIndex = i;
+            break;
         }
-    
-        if(activeChannels & (1 << ADC_HPF))
-        {
-            PPG_EduKit_HPF_Buffer[PPG_EduKIT_BufferHead] = ch_samples[ADC_HPF];
-        }
-    
-        if(activeChannels & (1 << ADC_LPF))
-        {
-            PPG_EduKit_LPF_Buffer[PPG_EduKIT_BufferHead] = ch_samples[ADC_LPF];
-        }
-    
-        if(activeChannels & (1 << ADC_AMP))
-        {
-            PPG_EduKit_AMP_Buffer[PPG_EduKIT_BufferHead] = ch_samples[ADC_AMP];
-        }
-        PPG_EduKIT_BufferHead++;
-        bufferProcessed = true;
     }
 
-    PPG_EduKIT_BufferHead = 0;
-}
-*/
+    if(ADC_Available() && (validChannel = true))
+    {
+        uint16_t* cBuf = ADC_GetFilledBuffer();
+        switch(channel)
+        {
+            case ADC_TIA:
+                memset((void *)PPG_EduKit_TIA_Buffer, 0, DMA_BUFFER_SIZE);
+                break;
+            case ADC_LPF:
+                memset((void *)PPG_EduKit_LPF_Buffer, 0, DMA_BUFFER_SIZE);
+                break;
+            case ADC_HPF:
+                memset((void *)PPG_EduKit_HPF_Buffer, 0, DMA_BUFFER_SIZE);
+                break;
+            case ADC_AMP:
+                memset((void *)PPG_EduKit_AMP_Buffer, 0, DMA_BUFFER_SIZE);
+                break;
+        }
 
-void PPG_EduKit::ADC_Init(uint8_t channels)
+        for (uint32_t i = channelIndex; i < DMA_BUFFER_SIZE; i = i + numberOfActiveChannels)
+        {
+            switch(channel)
+            {
+                case ADC_TIA:
+                    PPG_EduKit_TIA_Buffer[samples] = cBuf[i];
+                    pBuffer = (uint16_t *) PPG_EduKit_TIA_Buffer;
+                    break;
+                case ADC_LPF:
+                    PPG_EduKit_LPF_Buffer[samples] = cBuf[i];
+                    pBuffer = (uint16_t *) PPG_EduKit_LPF_Buffer;
+                    break;
+                case ADC_HPF:
+                    PPG_EduKit_HPF_Buffer[samples] = cBuf[i];
+                    pBuffer = (uint16_t *) PPG_EduKit_HPF_Buffer;
+                    break;
+                case ADC_AMP:
+                    PPG_EduKit_AMP_Buffer[samples] = cBuf[i];
+                    pBuffer = (uint16_t *) PPG_EduKit_AMP_Buffer;
+                    break;
+            }
+            samples++;
+        }
+
+        ADC_ReadBufferDone();
+
+        *bufferLength = samples;
+    }
+
+
+    return pBuffer;
+}
+
+
+void PPG_EduKit::ADC_Init(uint8_t channels, uint32_t samplingRate)
 {
     uint8_t count = 0;
-    if(channels & (1 << ADC_TIA))
+    if(channels & ADC_AMP)
     {
-        adcChannels[count] = 0x00;
+        adcChannels[count] = ADC_AMP;
         count++;
     }
 
-    if(channels & (1 << ADC_HPF))
+    if(channels & ADC_LPF)
     {
-        adcChannels[count] = 0x01;
+        adcChannels[count] = ADC_LPF;
         count++;
     }
 
-    if(channels & (1 << ADC_LPF))
+    if(channels & ADC_HPF)
     {
-        adcChannels[count] = 0x02;
+        adcChannels[count] = ADC_HPF;
         count++;
     }
 
-    if(channels & (1 << ADC_AMP))
+    if(channels & ADC_TIA)
     {
-        adcChannels[count] = 0x03;
+        adcChannels[count] = ADC_TIA;
         count++;
     }
-   
+
     numberOfActiveChannels = count;
  
-    PMC->PMC_PCER1 |= PMC_PCER1_PID37;                    // ADC power on
-    ADC->ADC_CR = ADC_CR_SWRST;                           // Reset ADC
-    ADC->ADC_MR |=  ADC_MR_TRGEN_EN                       // Hardware trigger select
-                    | ADC_MR_TRGSEL_ADC_TRIG3             // Trigger by TIOA2
-                    | ADC_MR_PRESCAL(1);
-    ADC->ADC_ACR = ADC_ACR_IBCTL(0b01);                   // For frequencies > 500 KHz
+    pmc_enable_periph_clk(ID_TC0);
 
-    ADC->ADC_CHER = ADC_CHER_CH7;                        // Enable ADC CH7 = A0
-    ADC->ADC_IER = ADC_IER_EOC7;                         // Interrupt on End of conversion
-    NVIC_EnableIRQ(ADC_IRQn);                            // Enable ADC interrupt
+
+    // Configure timer
+    TC_Configure(TC0, 0, TC_CMR_WAVE | TC_CMR_WAVSEL_UP_RC | TC_CMR_ACPA_CLEAR | TC_CMR_ACPC_SET | TC_CMR_ASWTRG_CLEAR | TC_CMR_TCCLKS_TIMER_CLOCK1);
+
+    // It is good to have the timer 0 on PIN2, good for Debugging
+    //int result = PIO_Configure( PIOB, PIO_PERIPH_B, PIO_PB25B_TIOA0, PIO_DEFAULT);
+
+    // Configure ADC pin A7
+    //  the below code is taken from adc_init(ADC, SystemCoreClock, ADC_FREQ_MAX, ADC_STARTUP_FAST);
+
+    ADC->ADC_CR = ADC_CR_SWRST;         // Reset the controller.
+    ADC->ADC_MR = 0;                    // Reset Mode Register.
+    ADC->ADC_PTCR = (ADC_PTCR_RXTDIS | ADC_PTCR_TXTDIS); // Reset PDC transfer.
+
+    ADC->ADC_MR |= ADC_MR_PRESCAL(3);   // ADC clock = MSCK/((PRESCAL+1)*2), 13 -> 750000 Sps
+    ADC->ADC_MR |= ADC_MR_STARTUP_SUT0; // What is this by the way?
+    ADC->ADC_MR |= ADC_MR_TRACKTIM(15);
+    ADC->ADC_MR |= ADC_MR_TRANSFER(1);
+    ADC->ADC_MR |= ADC_MR_TRGEN_EN;
+    ADC->ADC_MR |= ADC_MR_TRGSEL_ADC_TRIG1; // selecting TIOA0 as trigger.
+    ADC->ADC_CHER = channels;
+
+    /* Interupts */
+    ADC->ADC_IDR   = ~ADC_IDR_ENDRX;
+    ADC->ADC_IER   =  ADC_IER_ENDRX;
+    /* Waiting for ENDRX as end of the transfer is set
+      when the current DMA transfer is done (RCR = 0), i.e. it doesn't include the
+      next DMA transfer.
+
+      If we trigger on RXBUFF This flag is set if there is no more DMA transfer in
+      progress (RCR = RNCR = 0). Hence we may miss samples.
+    */
+
+    
+    unsigned int cycles = 42000000 / samplingRate;
+
+    /*  timing of ADC */
+    TC_SetRC(TC0, 0, cycles);      // TIOA0 goes HIGH on RC.
+    TC_SetRA(TC0, 0, cycles / 2);  // TIOA0 goes LOW  on RA.
+
+    // We have to reinitalise just in case the Sampler is stopped and restarted...
+    dataReady = false;
+    adcDMAIndex = 0;
+    adcTransferIndex = 0;
+    for (int i = 0; i < DMA_NUMBER_OF_BUFFERS; i++)
+    {
+      memset((void *)adcBuffer[i], 0, DMA_BUFFER_SIZE);
+    }
+
+    ADC->ADC_RPR  = (unsigned long) adcBuffer[adcDMAIndex];  // DMA buffer
+    ADC->ADC_RCR  = (unsigned int)  DMA_BUFFER_SIZE;  // ADC works in half-word mode.
+    ADC->ADC_RNPR = (unsigned long) adcBuffer[(adcDMAIndex + 1)];  // next DMA buffer
+    ADC->ADC_RNCR = (unsigned int)  DMA_BUFFER_SIZE;
+
+    // Enable interrupts
+    NVIC_EnableIRQ(ADC_IRQn);
+    ADC->ADC_PTCR  =  ADC_PTCR_RXTEN;  // Enable receiving data.
+    ADC->ADC_CR   |=  ADC_CR_START;    //start waiting for trigger.
+
+    // Start timer
+    TC0->TC_CHANNEL[0].TC_SR;
+    TC0->TC_CHANNEL[0].TC_CCR = TC_CCR_CLKEN;
+    TC_Start(TC0, 0);
 }
 
 
-void PPG_EduKit::TIMER_Init(uint32_t ticks) 
+uint16_t* PPG_EduKit::ADC_GetFilledBuffer()
 {
-
-  PMC->PMC_PCER0 |= PMC_PCER0_PID29;                      // TC2 power ON : Timer Counter 0 channel 2 IS TC2
-  TC0->TC_CHANNEL[2].TC_CMR = TC_CMR_TCCLKS_TIMER_CLOCK2  // MCK/8, clk on rising edge
-                              | TC_CMR_WAVE               // Waveform mode
-                              | TC_CMR_WAVSEL_UP_RC        // UP mode with automatic trigger on RC Compare
-                              | TC_CMR_ACPA_CLEAR          // Clear TIOA2 on RA compare match
-                              | TC_CMR_ACPC_SET;           // Set TIOA2 on RC compare match
-
-
-   TC0->TC_CHANNEL[2].TC_RC = 238;  //<*********************  Frequency = (Mck/8)/TC_RC  Hz = 44.117 Hz
-   TC0->TC_CHANNEL[2].TC_RA = 40;  //<********************   Any Duty cycle in between 1 and 874
-
-   TC0->TC_CHANNEL[2].TC_CCR = TC_CCR_SWTRG | TC_CCR_CLKEN; // Software tr
-
+  return (uint16_t*) adcBuffer[adcTransferIndex];
 }
 
+bool PPG_EduKit::ADC_Available()
+{
+  return dataReady;
+}
+
+void PPG_EduKit::ADC_ReadBufferDone()
+{
+  dataReady = false;
+}
 
 void PPG_EduKit::ADC_HandlerISR()
 {
+    unsigned long status = ADC->ADC_ISR;
+    if (status & ADC_ISR_ENDRX)  
+    {
+        adcTransferIndex = adcDMAIndex;
+        adcDMAIndex = (adcDMAIndex + 1) % DMA_NUMBER_OF_BUFFERS;
+        ADC->ADC_RNPR  = (unsigned long) adcBuffer[(adcDMAIndex + 1) % DMA_NUMBER_OF_BUFFERS];
+        ADC->ADC_RNCR  = DMA_BUFFER_SIZE;
+        dataReady = true;
+    }
+}
+
+
+uint8_t* PPG_EduKit::createSerialFrame(void *inputData, uint16_t noOfBytes, frameParams_t *serialFrameStruct)
+{
+  if(DMA_BUFFER_SIZE + 5 < noOfBytes)
+    serialFrameStruct->frameType = (frameType_t) 0xFF;
+    
+  serialFrame[0] = FRAME_START;
   
+  switch(serialFrameStruct->frameType)
+  {
+    case CHANNEL_DATA:
+        serialFrame[1] = CHANNEL_DATA;
+        serialFrame[2] = serialFrameStruct->tissueDetected;
+        serialFrame[3] = serialFrameStruct->params.wavelength;
+        memcpy(&serialFrame[4], inputData, noOfBytes);
+        serialFrame[noOfBytes + 4] = FRAME_TERMINATOR_1;
+        serialFrame[noOfBytes + 5] = FRAME_TERMINATOR_2;
+        break;
+        
+    case PARAMS:
+
+        break;
+        
+    case DEBUG_FRAME:
+        break;
+        
+    default:
+        serialFrame[1] = 0xDE;
+        serialFrame[2] = 0xAD;
+        serialFrame[3] = 0xDE;
+        serialFrame[4] = 0xAD;
+        serialFrame[5] = FRAME_TERMINATOR_1;
+        serialFrame[6] = FRAME_TERMINATOR_2;
+        break;
+  }
+
+  return serialFrame;
+}
+
+void PPG_EduKit::sendFrame(uint8_t *pFrame)
+{ 
+  bool terminator_1 = false;
+  bool endOfFrame = false;
+  
+  while(!endOfFrame)
+  {
+    if (*pFrame < 16) {Serial.print("0");}
+    Serial.print(*pFrame, HEX);  
+    
+    if(FRAME_TERMINATOR_1 == *pFrame)
+    {
+      terminator_1 = true;
+    }
+
+    if((true == terminator_1) && (FRAME_TERMINATOR_2 == *pFrame))
+    {
+      endOfFrame = true;
+    }
+   
+    pFrame++;
+
+  }
+  Serial.print('\n');
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void ADC_Handler() 
+{
+    PPG_EduKit::ADC_HandlerISR();
 }
 
 
