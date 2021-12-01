@@ -90,11 +90,6 @@ uint8_t PPG_EduKit::adcChannels[4] = {0};
 uint8_t PPG_EduKit::activeChannels = 0U;
 
 
-//void ADC_Handler(void)
-//{
-//	  digitalWrite(24, !digitalRead(24));
-//}
-
 void PPG_EduKit::begin(PPG_EK_Peripherals *peripheralsList, uint32_t samplingRate)
 {
     Serial.begin(115200);

@@ -74,8 +74,15 @@ void setup() {
     .read_TIA = DISABLE_PERIPHERAL,
     .read_HPF = DISABLE_PERIPHERAL,
     .read_LPF = DISABLE_PERIPHERAL,
+<<<<<<< HEAD
     .read_AMP = DISABLE_PERIPHERAL
   };
+=======
+    .read_AMP = ENABLE_PERIPHERAL
+  };
+  
+  PPG_Shield.begin(&periphList, samplingRate);
+>>>>>>> 23ca5258580f53f3848653674701dc8c0c0b6dbd
 
   delay(1000);
   PPG_Shield.begin(&periphList, 0);
@@ -89,6 +96,7 @@ void setup() {
 
 void loop() {
 
+<<<<<<< HEAD
   lastTemperature = temperature;
   temperature = PPG_Shield.MAX30205_GetTemperature();
   
@@ -97,7 +105,19 @@ void loop() {
       refreshTempValue();
       Serial.println(temperature);
       delay(500);
+=======
+  uint32_t bufflength = 0;
+  uint16_t* cBuf = PPG_Shield.readChannel(ADC_AMP, &bufflength);
+  
+  if(bufflength != 0)
+  {
+    memset(&frameParam, 0x00, sizeof(frameParam));
+    frameParam.frameType = CHANNEL_DATA;
+    frameParam.params.wavelength = IR_CHANNEL;
+    frameParam.tissueDetected = true;
+    gpFrame = PPG_Shield.createSerialFrame((uint16_t *) &cBuf[0], (bufflength) * 2, &frameParam);
+             
+    PPG_Shield.sendFrame(gpFrame);
+>>>>>>> 23ca5258580f53f3848653674701dc8c0c0b6dbd
   }
 }
-
-
