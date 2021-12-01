@@ -48,6 +48,12 @@
 #define NEOPIXEL_PIN                 0U
 #define SWITCH_BUTTON                1U
 
+
+#define MAX30205_ADDRESS        0x48
+#define MAX30205_TEMPERATURE    0x00
+#define MAX30205_CONFIGURATION  0x01 
+#define MAX30205_THYST          0x02  
+#define MAX30205_TOS            0x03 
                                       
 typedef enum{
     RED_CHANNEL,
@@ -109,7 +115,6 @@ class PPG_EduKit {
         {
             _display = (std::unique_ptr<Adafruit_SH110X>) &display;
             _pixels = (std::unique_ptr<Adafruit_NeoPixel>) &pixels;
-            _tempSensor = (std::unique_ptr<MAX30205>) &tempSensor;
             _ppgSensor = (std::unique_ptr<MAX30105>) &ppgSensor;
         }
 
@@ -118,13 +123,11 @@ class PPG_EduKit {
         uint16_t* readChannel(uint8_t channel, uint32_t *bufferLength);
         uint8_t* createSerialFrame(void *inputData, uint16_t noOfBytes, frameParams_t *serialFrameStruct);
         void sendFrame(uint8_t *pFrame);
+        float MAX30205_GetTemperature(void);
         static void ADC_HandlerISR();
-
+        static uint8_t int2acii(uint16_t num, char* buffer);
         Adafruit_SH110X& getHandler_OLED() { return *(this->_display); }
         Adafruit_NeoPixel& getHandler_NeoPixel() { return *(this->_pixels); }
-#ifndef __SAM3X8E__
-        MAX30205& getHandler_TempSensor() { return *(this->_tempSensor); }
-#endif
         MAX30105& getHandler_PpgSensor() { return *(this->_ppgSensor); }
         
 
@@ -142,7 +145,6 @@ class PPG_EduKit {
         TwoWire *_i2cPort;
         Adafruit_SH110X display;
         Adafruit_NeoPixel pixels;        
-        MAX30205 tempSensor;
         MAX30105 ppgSensor;
         
 
@@ -156,9 +158,12 @@ class PPG_EduKit {
 
         std::unique_ptr<Adafruit_SH110X> _display;
         std::unique_ptr<Adafruit_NeoPixel> _pixels;
-        std::unique_ptr<MAX30205> _tempSensor;
         std::unique_ptr<MAX30105> _ppgSensor;
 
+        void MAX30205_Init(void);
+        void MAX30205_WriteByte(uint8_t value, uint8_t reg);
+        void MAX30205_ReadBytes(uint8_t *buffer, uint8_t bytes_number, uint8_t reg);
+   
         void OLED_displaySetup(void);
         void TLC5925_enableRed(void);
         void TLC5925_enableGreen(void);
